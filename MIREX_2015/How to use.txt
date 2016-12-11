@@ -1,0 +1,2 @@
+python SuperFlux.py single sample.wav
+python LogFiltSpecFlux.py single sample.wav

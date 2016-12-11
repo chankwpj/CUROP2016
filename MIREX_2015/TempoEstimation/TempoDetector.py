@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+# encoding: utf-8
+"""
+TempoDetector tempo estimation algorithm.
+
+"""
+
+from __future__ import absolute_import, division, print_function
+
+import argparse
+from madmom.processors import IOProcessor, io_arguments
+from madmom.audio.signal import SignalProcessor
+from madmom.features import ActivationsProcessor
+from madmom.features.beats import RNNBeatProcessor
+from madmom.features.tempo import TempoEstimationProcessor, write_tempo
+
+
+def main():
+    """TempoDetector"""
+
+    # define parser
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter, description='''
+    The TempoDetector program detects the dominant tempi according to the
+    algorithm described in:
+
+    "Accurate Tempo Estimation based on Recurrent Neural Networks and
+     Resonating Comb Filters"
+    Sebastian Böck, Florian Krebs and Gerhard Widmer.
+    Proceedings of the 16th International Society for Music Information
+    Retrieval Conference (ISMIR), 2015.
+
+    This program can be run in 'single' file mode to process a single audio
+    file and write the detected tempi to STDOUT or the given output file.
+
+    $ TempoDetector single INFILE [-o OUTFILE]
+
+    If multiple audio files should be processed, the program can also be run
+    in 'batch' mode to save the detected tempi to files with the given suffix.
+
+    $ TempoDetector batch [-o OUTPUT_DIR] [-s OUTPUT_SUFFIX] LIST OF FILES
+
+    If no output directory is given, the program writes the files with the
+    detected tempi to same location as the audio files.
+
+    The 'pickle' mode can be used to store the used parameters to be able to
+    exactly reproduce experiments.
+
+    ''')
+    # version
+    p.add_argument('--version', action='version', version='TempoDetector.2014')
+    # input/output options
+    io_arguments(p, output_suffix='.bpm.txt')
+    ActivationsProcessor.add_arguments(p)
+    # signal processing arguments
+    SignalProcessor.add_arguments(p, norm=False, gain=0)
+    # tempo arguments
+    TempoEstimationProcessor.add_arguments(p)
+    # mirex stuff
+    g = p.add_mutually_exclusive_group()
+    g.add_argument('--mirex', dest='tempo_format',
+                   action='store_const', const='mirex',
+                   help='use the MIREX output format (lower tempo first)')
+    g.add_argument('--all', dest='tempo_format',
+                   action='store_const', const='all',
+                   help='output all detected tempi in raw format')
+
+    # parse arguments
+    args = p.parse_args()
+
+    # set immutable arguments
+    args.fps = 100
+
+    # print arguments
+    if args.verbose:
+        print(args)
+
+    # input processor
+    if args.load:
+        # load the activations from file
+        in_processor = ActivationsProcessor(mode='r', **vars(args))
+    else:
+        # use a RNN to predict the beats
+        in_processor = RNNBeatProcessor()
+
+    # output processor
+    if args.save:
+        # save the RNN beat activations to file
+        out_processor = ActivationsProcessor(mode='w', **vars(args))
+    else:
+        # perform tempo estimation based on the beat activation function
+        tempo_estimator = TempoEstimationProcessor(**vars(args))
+        # output handler
+        if args.tempo_format == 'mirex':
+            # output in the MIREX format (i.e. slower tempo first)
+            from functools import partial
+            writer = partial(write_tempo, mirex=True)
+        elif args.tempo_format in ('raw', 'all'):
+            # borrow the event writer for outputting multiple values
+            from madmom.utils import write_events as writer
+        else:
+            # normal output
+            writer = write_tempo
+        # sequentially process them
+        out_processor = [tempo_estimator, writer]
+
+    # create an IOProcessor
+    processor = IOProcessor(in_processor, out_processor)
+
+    # finally call the processing function (single/batch processing)
+    args.func(processor, **vars(args))
+
+
+if __name__ == '__main__':
+    main()

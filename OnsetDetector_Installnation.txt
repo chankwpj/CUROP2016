@@ -1,0 +1,6 @@
+Onset Detector
+Installation
+http://madmom.readthedocs.io/en/latest/
+
+Usage Python:
+python XXXdector.py -single Audio.wav
